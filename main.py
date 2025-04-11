@@ -19,7 +19,7 @@ awaiting_photo_to_send = {}
 
 @dp.message_handler(commands=['start'])
 async def start_handler(message: types.Message):
-    user_orders.pop(message.from_user.id, None)  # чистим прошлые заказы
+    user_orders.pop(message.from_user.id, None)
     markup = InlineKeyboardMarkup()
     markup.add(InlineKeyboardButton("Днепр", callback_data="city_dnepr"))
 
@@ -98,7 +98,7 @@ async def area_selected(callback_query: types.CallbackQuery):
     all_orders[order_id] = full_order
 
     markup = InlineKeyboardMarkup()
-    markup.add(InlineKeyboardButton("💳 Оплата на карту", callback_data="pay_card"))
+    markup.add(InlineKeyboardButton("\ud83d\udcb3 Оплата на карту", callback_data="pay_card"))
 
     await callback_query.message.edit_text(
         f"Заказ создан! Адрес забронирован!\n\n"
@@ -111,12 +111,12 @@ async def area_selected(callback_query: types.CallbackQuery):
 
     admin_markup = InlineKeyboardMarkup()
     admin_markup.add(
-        InlineKeyboardButton("✅ Подтвердить", callback_data=f"approve_{order_id}"),
-        InlineKeyboardButton("❌ Отклонить", callback_data=f"reject_{order_id}")
+        InlineKeyboardButton("\u2705 Подтвердить", callback_data=f"approve_{order_id}"),
+        InlineKeyboardButton("\u274c Отклонить", callback_data=f"reject_{order_id}")
     )
 
     await bot.send_message(ADMIN_ID,
-        f"📦 Новый заказ #{order_id}\n"
+        f"\ud83d\udce6 Новый заказ #{order_id}\n"
         f"Юзер: @{callback_query.from_user.username}\n"
         f"Товар: {data['product']}\n"
         f"Цена: {data['price']}\n"
@@ -141,15 +141,6 @@ async def payment_selected(callback_query: types.CallbackQuery):
         "После оплаты скинь скрин сюда."
     )
 
-@dp.message_handler(content_types=types.ContentType.PHOTO)
-async def handle_photo(message: types.Message):
-    if message.from_user.id not in user_orders:
-        return await message.reply("Сначала выбери товар /start")
-
-    await bot.send_message(ADMIN_ID, f"📄 Скрин оплаты от @{message.from_user.username} для заказа #{user_orders[message.from_user.id]['order_id']}")
-    await bot.forward_message(ADMIN_ID, message.chat.id, message.message_id)
-    await message.reply("Скрин получен! Ожидай подтверждение от оператора.")
-
 @dp.message_handler(commands=["admin"])
 async def admin_panel(message: types.Message):
     if message.from_user.id != ADMIN_ID:
@@ -161,8 +152,8 @@ async def admin_panel(message: types.Message):
     for order_id, order in pending_orders.items():
         markup = InlineKeyboardMarkup()
         markup.add(
-            InlineKeyboardButton("✅ Подтвердить", callback_data=f"approve_{order_id}"),
-            InlineKeyboardButton("❌ Отклонить", callback_data=f"reject_{order_id}")
+            InlineKeyboardButton("\u2705 Подтвердить", callback_data=f"approve_{order_id}"),
+            InlineKeyboardButton("\u274c Отклонить", callback_data=f"reject_{order_id}")
         )
         await message.answer(
             f"Заказ #{order_id}\nЮзер: @{order['username']}\nТовар: {order['product']}\nЦена: {order['price']}",
@@ -179,11 +170,11 @@ async def process_admin_action(callback_query: types.CallbackQuery):
         return await callback_query.answer("Заказ уже обработан.")
 
     if action == "approve":
-        await bot.send_message(order["user_id"], f"✅ Заказ #{order_id} подтвержден! Скоро с тобой свяжется оператор.")
-        await callback_query.message.edit_text(f"✅ Заказ #{order_id} подтвержден.")
+        await bot.send_message(order["user_id"], f"\u2705 Заказ #{order_id} подтвержден! Скоро с тобой свяжется оператор.")
+        await callback_query.message.edit_text(f"\u2705 Заказ #{order_id} подтвержден.")
     else:
-        await bot.send_message(order["user_id"], f"❌ Заказ #{order_id} был отклонён. Свяжись с оператором.")
-        await callback_query.message.edit_text(f"❌ Заказ #{order_id} отклонён.")
+        await bot.send_message(order["user_id"], f"\u274c Заказ #{order_id} был отклонён. Свяжись с оператором.")
+        await callback_query.message.edit_text(f"\u274c Заказ #{order_id} отклонён.")
 
 @dp.message_handler(commands=["send"])
 async def send_photo_command(message: types.Message):
@@ -204,21 +195,26 @@ async def send_photo_command(message: types.Message):
     await message.reply(f"Жду фото для отправки пользователю заказа #{order_id}.")
 
 @dp.message_handler(content_types=[types.ContentType.PHOTO, types.ContentType.DOCUMENT])
-async def admin_send_photo_to_user(message: types.Message):
-    if message.from_user.id != ADMIN_ID:
-        return
+async def handle_photo_uploads(message: types.Message):
+    if message.from_user.id == ADMIN_ID:
+        if message.from_user.id not in awaiting_photo_to_send:
+            return
 
-    if message.from_user.id not in awaiting_photo_to_send:
-        return
+        order_id = awaiting_photo_to_send.pop(message.from_user.id)
+        order = all_orders.get(order_id)
+        if not order:
+            return await message.reply("Пользователь не найден.")
 
-    order_id = awaiting_photo_to_send.pop(message.from_user.id)
-    order = all_orders.get(order_id)
-    if not order:
-        return await message.reply("Пользователь не найден.")
+        await bot.send_message(order["user_id"], f"\ud83d\udce6 Фото по заказу #{order_id}")
+        await bot.forward_message(order["user_id"], message.chat.id, message.message_id)
+        return await message.reply(f"Фото успешно отправлено пользователю заказа #{order_id}.")
 
-    await bot.send_message(order["user_id"], f"📦 Фото по заказу #{order_id}")
-    await bot.forward_message(order["user_id"], message.chat.id, message.message_id)
-    await message.reply(f"Фото успешно отправлено пользователю заказа #{order_id}.")
+    if message.from_user.id not in user_orders:
+        return await message.reply("Сначала выбери товар /start")
+
+    await bot.send_message(ADMIN_ID, f"\ud83d\udcc4 Скрин оплаты от @{message.from_user.username} для заказа #{user_orders[message.from_user.id]['order_id']}")
+    await bot.forward_message(ADMIN_ID, message.chat.id, message.message_id)
+    await message.reply("Скрин получен! Ожидай подтверждение от оператора.")
 
 if __name__ == "__main__":
     executor.start_polling(dp, skip_updates=True)
