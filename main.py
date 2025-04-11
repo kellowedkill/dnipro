@@ -165,9 +165,9 @@ async def start_handler(message: types.Message):
 async def city_selected(callback_query: types.CallbackQuery):
     markup = InlineKeyboardMarkup(row_width=1)
     markup.add(
-        InlineKeyboardButton("Товар 1 - 1гр - 300 грн", callback_data="product_1"),
-        InlineKeyboardButton("Товар 2 - 2гр - 570 грн", callback_data="product_2"),
-        InlineKeyboardButton("Товар 3 - 3гр - 820 грн", callback_data="product_3")
+        InlineKeyboardButton(" Hindu Kush - 1гр - 300 грн", callback_data="product_1"),
+        InlineKeyboardButton(" Hindu Kush - 2гр - 570 грн", callback_data="product_2"),
+        InlineKeyboardButton(" Hindu Kush - 3гр - 820 грн", callback_data="product_3")
     )
     
     # Удаляем старое сообщение с фото
@@ -189,9 +189,9 @@ async def city_selected(callback_query: types.CallbackQuery):
 @dp.callback_query_handler(lambda c: c.data.startswith("product_"))
 async def product_selected(callback_query: types.CallbackQuery):
     product_map = {
-        "product_1": "Товар 1 - 1гр - 300 грн",
-        "product_2": "Товар 2 - 2гр - 570 грн",
-        "product_3": "Товар 3 - 3гр - 820 грн",
+        "product_1": " Hindu Kush - 1гр - 300 грн",
+        "product_2": " Hindu Kush - 2гр - 570 грн",
+        "product_3": " Hindu Kush - 3гр - 820 грн",
     }
     product_name = product_map[callback_query.data]
     price = product_name.split('-')[-1].strip()
@@ -209,7 +209,11 @@ async def product_selected(callback_query: types.CallbackQuery):
     )
     await callback_query.message.edit_text(
         f"Избран продукт: {product_name}\n"
-        f"Коротко о товаре: (сам изменишь)\n"
+        f"Коротко о товаре:  Hindu Kush — легенда прямо с гор!
+Чистая индика, которая расслабит тело и вынесет мозг в дзен. Густой пряно-земляной аромат, мягкий вкус и мощный эффект "всё по кайфу". Идеален для вечеров, чилла и сладкого сна.
+
+ 100% качество — без суеты, только кайф.
+Попробуй классику, с которой всё начиналось.\n"
         f"Цена: {price}\n"
         "Выберите подходящий район:", reply_markup=markup
     )
