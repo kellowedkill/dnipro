@@ -1,97 +1,113 @@
-
 from aiogram import Bot, Dispatcher, types
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils import executor
 from aiogram.dispatcher.filters import Command
 import logging
 import random
 
-# === CONFIG ===
-API_TOKEN = '7596145421:AAFMkGYtjaJRxwP-G5sl-t3lj7jxQaPboqE'
-ADMIN_ID = 8070055531  # Telegram ID админа
+API_TOKEN = '7740691105:AAG5bIBaN4lLGesxlFDlzW1LU0T8Ka0LRO4'
+ADMIN_ID = 8070055531
 
-# === SETUP ===
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher(bot)
 logging.basicConfig(level=logging.INFO)
-user_orders = {}  # Словарь для хранения заказов по user_id
-pending_orders = {}  # Заказы, ожидающие подтверждения
 
-# === HANDLERS ===
+user_orders = {}
+pending_orders = {}
+all_orders = {}
+awaiting_photo_to_send = {}
 
 @dp.message_handler(commands=['start'])
 async def start_handler(message: types.Message):
-    markup = ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.add(KeyboardButton("Днепр"))
-    
-  await message.answer(f"Ку бро, - {message.from_user.username or message.from_user.first_name}")
+    user_orders.pop(message.from_user.id, None)  # чистим прошлые заказы
+    markup = InlineKeyboardMarkup()
+    markup.add(InlineKeyboardButton("Днепр", callback_data="city_dnepr"))
 
-"
-        "Рад тебя видеть в нашем шопе.
-"
-        "Оператор: @shmalebanutaya
-"
+    await message.answer(
+        f"Ку бро, - {message.from_user.username or message.from_user.first_name}\n\n"
+        "Рад тебя видеть в нашем шопе.\n"
+        "Оператор: @shmalebanutaya\n"
         "Не забудь подписаться на канал - [ссылка]",
         reply_markup=markup
     )
 
-@dp.message_handler(lambda message: message.text == "Днепр")
-async def city_selected(message: types.Message):
-    markup = ReplyKeyboardMarkup(resize_keyboard=True)
+@dp.callback_query_handler(lambda c: c.data == "city_dnepr")
+async def city_selected(callback_query: types.CallbackQuery):
+    markup = InlineKeyboardMarkup(row_width=1)
     markup.add(
-        "Товар 1 - 1гр - 300 грн",
-        "Товар 2 - 2гр - 570 грн",
-        "Товар 3 - 3гр - 820 грн"
+        InlineKeyboardButton("Товар 1 - 1гр - 300 грн", callback_data="product_1"),
+        InlineKeyboardButton("Товар 2 - 2гр - 570 грн", callback_data="product_2"),
+        InlineKeyboardButton("Товар 3 - 3гр - 820 грн", callback_data="product_3")
     )
-    await message.answer("Вы выбрали город Днепр.\nЧто тебе присмотрелось?", reply_markup=markup)
+    await callback_query.message.edit_text("Вы выбрали город Днепр.\nЧто тебе присмотрелось?", reply_markup=markup)
 
-@dp.message_handler(lambda message: "Товар" in message.text)
-async def product_selected(message: types.Message):
-    product_name = message.text
+@dp.callback_query_handler(lambda c: c.data.startswith("product_"))
+async def product_selected(callback_query: types.CallbackQuery):
+    product_map = {
+        "product_1": "Товар 1 - 1гр - 300 грн",
+        "product_2": "Товар 2 - 2гр - 570 грн",
+        "product_3": "Товар 3 - 3гр - 820 грн",
+    }
+    product_name = product_map[callback_query.data]
     price = product_name.split('-')[-1].strip()
 
-    user_orders[message.from_user.id] = {
+    user_orders[callback_query.from_user.id] = {
         "product": product_name,
         "price": price
     }
 
-    markup = ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.add("Кирова", "Начало пр. Богдана Хмельницкого")
-    await message.answer(
+    markup = InlineKeyboardMarkup(row_width=1)
+    markup.add(
+        InlineKeyboardButton("Кирова", callback_data="area_kirova"),
+        InlineKeyboardButton("Начало пр. Богдана Хмельницкого", callback_data="area_bh")
+    )
+    await callback_query.message.edit_text(
         f"Избран продукт: {product_name}\n"
         f"Коротко о товаре: (сам изменишь)\n"
         f"Цена: {price}\n"
         "Выберите подходящий район:", reply_markup=markup
     )
 
-@dp.message_handler(lambda message: message.text in ["Кирова", "Начало пр. Богдана Хмельницкого"])
-async def area_selected(message: types.Message):
-    data = user_orders.get(message.from_user.id)
+@dp.callback_query_handler(lambda c: c.data.startswith("area_"))
+async def area_selected(callback_query: types.CallbackQuery):
+    data = user_orders.get(callback_query.from_user.id)
     if not data:
-        return await message.answer("Что-то пошло не так. Попробуй снова /start")
+        return await callback_query.message.edit_text("Что-то пошло не так. Попробуй снова /start")
+
+    area_map = {
+        "area_kirova": "Кирова",
+        "area_bh": "Начало пр. Богдана Хмельницкого"
+    }
+    area = area_map[callback_query.data]
 
     order_id = random.randint(20000, 99999)
-    data["order_id"] = order_id
-    data["city"] = "Днепр"
-    data["area"] = message.text
+    data.update({
+        "order_id": order_id,
+        "city": "Днепр",
+        "area": area
+    })
 
-    markup = ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.add("Оплата на карту", "/start")
+    full_order = {
+        **data,
+        "user_id": callback_query.from_user.id,
+        "username": callback_query.from_user.username
+    }
 
-    await message.answer(
+    user_orders[callback_query.from_user.id] = data
+    pending_orders[order_id] = full_order
+    all_orders[order_id] = full_order
+
+    markup = InlineKeyboardMarkup()
+    markup.add(InlineKeyboardButton("💳 Оплата на карту", callback_data="pay_card"))
+
+    await callback_query.message.edit_text(
         f"Заказ создан! Адрес забронирован!\n\n"
         f"Ваш заказ №: {order_id}\n"
         f"Город: {data['city']}\n"
         f"Товар: {data['product']}\n"
         f"Цена: {data['price']}\n"
-        f"Выберите удобный метод платы:", reply_markup=markup
+        f"Метод оплаты:", reply_markup=markup
     )
-
-    pending_orders[order_id] = {
-        **data,
-        "user_id": message.from_user.id,
-        "username": message.from_user.username
-    }
 
     admin_markup = InlineKeyboardMarkup()
     admin_markup.add(
@@ -101,20 +117,20 @@ async def area_selected(message: types.Message):
 
     await bot.send_message(ADMIN_ID,
         f"📦 Новый заказ #{order_id}\n"
-        f"Юзер: @{message.from_user.username}\n"
+        f"Юзер: @{callback_query.from_user.username}\n"
         f"Товар: {data['product']}\n"
         f"Цена: {data['price']}\n"
         f"Район: {data['area']}",
         reply_markup=admin_markup
     )
 
-@dp.message_handler(lambda message: message.text == "Оплата на карту")
-async def payment_selected(message: types.Message):
-    data = user_orders.get(message.from_user.id)
+@dp.callback_query_handler(lambda c: c.data == "pay_card")
+async def payment_selected(callback_query: types.CallbackQuery):
+    data = user_orders.get(callback_query.from_user.id)
     if not data:
-        return await message.answer("Сначала выбери товар /start")
+        return await callback_query.message.edit_text("Сначала выбери товар /start")
 
-    await message.answer(
+    await callback_query.message.edit_text(
         f"Ваш заказ №: {data['order_id']}\n"
         f"Город: {data['city']}\n"
         f"Товар: {data['product']}\n"
@@ -127,7 +143,10 @@ async def payment_selected(message: types.Message):
 
 @dp.message_handler(content_types=types.ContentType.PHOTO)
 async def handle_photo(message: types.Message):
-    await bot.send_message(ADMIN_ID, f"📤 Скрин оплаты от @{message.from_user.username} для заказа #{user_orders[message.from_user.id]['order_id']}")
+    if message.from_user.id not in user_orders:
+        return await message.reply("Сначала выбери товар /start")
+
+    await bot.send_message(ADMIN_ID, f"📄 Скрин оплаты от @{message.from_user.username} для заказа #{user_orders[message.from_user.id]['order_id']}")
     await bot.forward_message(ADMIN_ID, message.chat.id, message.message_id)
     await message.reply("Скрин получен! Ожидай подтверждение от оператора.")
 
@@ -165,6 +184,41 @@ async def process_admin_action(callback_query: types.CallbackQuery):
     else:
         await bot.send_message(order["user_id"], f"❌ Заказ #{order_id} был отклонён. Свяжись с оператором.")
         await callback_query.message.edit_text(f"❌ Заказ #{order_id} отклонён.")
+
+@dp.message_handler(commands=["send"])
+async def send_photo_command(message: types.Message):
+    if message.from_user.id != ADMIN_ID:
+        return await message.reply("Нет доступа.")
+
+    args = message.text.split()
+    if len(args) < 2:
+        return await message.reply("Укажи номер заказа. Пример: /send 70214")
+
+    order_id = int(args[1])
+    order = all_orders.get(order_id)
+
+    if not order:
+        return await message.reply("Заказ с таким номером не найден.")
+
+    awaiting_photo_to_send[message.from_user.id] = order_id
+    await message.reply(f"Жду фото для отправки пользователю заказа #{order_id}.")
+
+@dp.message_handler(content_types=[types.ContentType.PHOTO, types.ContentType.DOCUMENT])
+async def admin_send_photo_to_user(message: types.Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+
+    if message.from_user.id not in awaiting_photo_to_send:
+        return
+
+    order_id = awaiting_photo_to_send.pop(message.from_user.id)
+    order = all_orders.get(order_id)
+    if not order:
+        return await message.reply("Пользователь не найден.")
+
+    await bot.send_message(order["user_id"], f"📦 Фото по заказу #{order_id}")
+    await bot.forward_message(order["user_id"], message.chat.id, message.message_id)
+    await message.reply(f"Фото успешно отправлено пользователю заказа #{order_id}.")
 
 if __name__ == "__main__":
     executor.start_polling(dp, skip_updates=True)
