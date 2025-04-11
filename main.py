@@ -29,8 +29,9 @@ all_orders = {}  # Все заказы
 awaiting_payment = {}  # Пользователи, которые должны отправить скриншот
 awaiting_admin_response = {}  # Пользователи, которым админ должен ответить
 
-# Файл для сохранения awaiting_payment
+# Файлы для сохранения состояний
 AWAITING_PAYMENT_FILE = "awaiting_payment.json"
+AWAITING_ADMIN_RESPONSE_FILE = "awaiting_admin_response.json"
 
 # Функции для сохранения и загрузки awaiting_payment
 def save_awaiting_payment():
@@ -46,8 +47,23 @@ def load_awaiting_payment():
     except FileNotFoundError:
         awaiting_payment = {}
 
+# Функции для сохранения и загрузки awaiting_admin_response
+def save_awaiting_admin_response():
+    with open(AWAITING_ADMIN_RESPONSE_FILE, "w") as f:
+        json.dump({str(k): v for k, v in awaiting_admin_response.items()}, f)
+
+def load_awaiting_admin_response():
+    global awaiting_admin_response
+    try:
+        with open(AWAITING_ADMIN_RESPONSE_FILE, "r") as f:
+            data = json.load(f)
+            awaiting_admin_response = {int(k): v for k, v in data.items()}
+    except FileNotFoundError:
+        awaiting_admin_response = {}
+
 # Загружаем данные при старте
 load_awaiting_payment()
+load_awaiting_admin_response()
 
 # HTTP-сервер для Render
 async def health_check(request):
@@ -64,9 +80,7 @@ async def errors_handler(update, exception):
 
 @dp.message_handler(commands=['start'])
 async def start_handler(message: types.Message):
-    # Убираем очистку awaiting_payment, чтобы не сбрасывать состояние
     user_orders.pop(message.from_user.id, None)
-    awaiting_admin_response.pop(message.from_user.id, None)
     markup = InlineKeyboardMarkup()
     markup.add(InlineKeyboardButton("Днепр", callback_data="city_dnepr"))
 
@@ -195,17 +209,43 @@ async def payment_selected(callback_query: types.CallbackQuery):
         "order_id": order_id,
         "message_id": callback_query.message.message_id
     }
-    save_awaiting_payment()  # Сохраняем состояние
+    save_awaiting_payment()
+
+@dp.message_handler(lambda message: message.from_user.id == ADMIN_ID, content_types=['photo', 'text'])
+async def handle_admin_response(message: types.Message):
+    if message.from_user.id not in awaiting_admin_response:
+        await message.answer("Пожалуйста, выберите действие через кнопку.")
+        return
+
+    response_info = awaiting_admin_response[message.from_user.id]
+    user_id = response_info["user_id"]
+    order_id = response_info["order_id"]
+
+    logger.info(f"Admin response for user_id={user_id}, order_id={order_id}")
+
+    try:
+        if message.photo:
+            photo = message.photo[-1].file_id
+            caption = message.caption or f"Ответ от админа по заказу #{order_id}"
+            await bot.send_photo(user_id, photo, caption=caption)
+        else:
+            await bot.send_message(user_id, f"Ответ от админа по заказу #{order_id}:\n{message.text}")
+
+        await message.answer(f"Ответ отправлен пользователю (заказ #{order_id}).")
+    except Exception as e:
+        logger.error(f"Error sending response to user {user_id}: {e}")
+        await message.answer("Ошибка при отправке ответа пользователю.")
+
+    awaiting_admin_response.pop(message.from_user.id, None)
+    save_awaiting_admin_response()
 
 @dp.message_handler(content_types=['photo', 'text'])
 async def handle_payment_proof(message: types.Message):
     user_id = message.from_user.id
     if user_id not in awaiting_payment:
-        # Проверяем, есть ли активный заказ
         if user_id in user_orders and "order_id" in user_orders[user_id]:
             order_id = user_orders[user_id]["order_id"]
             if all_orders.get(order_id, {}).get("status") == "ожидает подтверждения оплаты":
-                # Восстанавливаем состояние
                 awaiting_payment[user_id] = {
                     "order_id": order_id,
                     "message_id": message.message_id
@@ -317,13 +357,13 @@ async def reply_to_user(callback_query: types.CallbackQuery):
             "user_id": user_id,
             "order_id": order_id
         }
+        save_awaiting_admin_response()
 
-        # Отправляем новое сообщение вместо редактирования
         await bot.send_message(
             callback_query.from_user.id,
             f"Отправьте ответ для пользователя (заказ #{order_id}). Это может быть текст, фото или фото с текстом."
         )
-        await callback_query.answer()  # Подтверждаем нажатие кнопки
+        await callback_query.answer()
     except Exception as e:
         logger.error(f"Error in reply_to_user: {e}")
         await bot.send_message(
@@ -331,36 +371,6 @@ async def reply_to_user(callback_query: types.CallbackQuery):
             "Произошла ошибка. Попробуйте снова."
         )
         await callback_query.answer()
-
-@dp.message_handler(content_types=['photo', 'text'])
-async def handle_admin_response(message: types.Message):
-    if message.from_user.id != ADMIN_ID:
-        return await handle_payment_proof(message)
-
-    if message.from_user.id not in awaiting_admin_response:
-        await message.answer("Пожалуйста, выберите действие через кнопку.")
-        return
-
-    response_info = awaiting_admin_response[message.from_user.id]
-    user_id = response_info["user_id"]
-    order_id = response_info["order_id"]
-
-    logger.info(f"Admin response for user_id={user_id}, order_id={order_id}")
-
-    try:
-        if message.photo:
-            photo = message.photo[-1].file_id
-            caption = message.caption or f"Ответ от админа по заказу #{order_id}"
-            await bot.send_photo(user_id, photo, caption=caption)
-        else:
-            await bot.send_message(user_id, f"Ответ от админа по заказу #{order_id}:\n{message.text}")
-
-        await message.answer(f"Ответ отправлен пользователю (заказ #{order_id}).")
-    except Exception as e:
-        logger.error(f"Error sending response to user {user_id}: {e}")
-        await message.answer("Ошибка при отправке ответа пользователю.")
-
-    awaiting_admin_response.pop(message.from_user.id, None)
 
 # Запуск бота и HTTP-сервера
 if __name__ == '__main__':
