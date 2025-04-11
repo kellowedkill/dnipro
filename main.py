@@ -5,7 +5,7 @@ from aiogram.dispatcher.filters import Command
 import logging
 import random
 
-API_TOKEN = 'YOUR_API_TOKEN_HERE'
+API_TOKEN = '7740691105:AAG5bIBaN4lLGesxlFDlzW1LU0T8Ka0LRO4'
 ADMIN_ID = 8070055531
 
 bot = Bot(token=API_TOKEN)
