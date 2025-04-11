@@ -1,10 +1,11 @@
 import os
 import logging
+import json
+import random
 from aiogram import Bot, Dispatcher, types
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils import executor
 from aiogram.dispatcher.filters import Command
-import random
 from aiohttp import web
 
 # Настройка логирования
@@ -28,6 +29,26 @@ all_orders = {}  # Все заказы
 awaiting_payment = {}  # Пользователи, которые должны отправить скриншот
 awaiting_admin_response = {}  # Пользователи, которым админ должен ответить
 
+# Файл для сохранения awaiting_payment
+AWAITING_PAYMENT_FILE = "awaiting_payment.json"
+
+# Функции для сохранения и загрузки awaiting_payment
+def save_awaiting_payment():
+    with open(AWAITING_PAYMENT_FILE, "w") as f:
+        json.dump({str(k): v for k, v in awaiting_payment.items()}, f)
+
+def load_awaiting_payment():
+    global awaiting_payment
+    try:
+        with open(AWAITING_PAYMENT_FILE, "r") as f:
+            data = json.load(f)
+            awaiting_payment = {int(k): v for k, v in data.items()}
+    except FileNotFoundError:
+        awaiting_payment = {}
+
+# Загружаем данные при старте
+load_awaiting_payment()
+
 # HTTP-сервер для Render
 async def health_check(request):
     return web.Response(text="Bot is running")
@@ -43,8 +64,8 @@ async def errors_handler(update, exception):
 
 @dp.message_handler(commands=['start'])
 async def start_handler(message: types.Message):
+    # Убираем очистку awaiting_payment, чтобы не сбрасывать состояние
     user_orders.pop(message.from_user.id, None)
-    awaiting_payment.pop(message.from_user.id, None)
     awaiting_admin_response.pop(message.from_user.id, None)
     markup = InlineKeyboardMarkup()
     markup.add(InlineKeyboardButton("Днепр", callback_data="city_dnepr"))
@@ -174,13 +195,28 @@ async def payment_selected(callback_query: types.CallbackQuery):
         "order_id": order_id,
         "message_id": callback_query.message.message_id
     }
+    save_awaiting_payment()  # Сохраняем состояние
 
 @dp.message_handler(content_types=['photo', 'text'])
 async def handle_payment_proof(message: types.Message):
     user_id = message.from_user.id
     if user_id not in awaiting_payment:
-        await message.answer("Пожалуйста, начните с команды /start")
-        return
+        # Проверяем, есть ли активный заказ
+        if user_id in user_orders and "order_id" in user_orders[user_id]:
+            order_id = user_orders[user_id]["order_id"]
+            if all_orders.get(order_id, {}).get("status") == "ожидает подтверждения оплаты":
+                # Восстанавливаем состояние
+                awaiting_payment[user_id] = {
+                    "order_id": order_id,
+                    "message_id": message.message_id
+                }
+                save_awaiting_payment()
+            else:
+                await message.answer("Пожалуйста, начните с команды /start")
+                return
+        else:
+            await message.answer("Пожалуйста, начните с команды /start")
+            return
 
     order_info = awaiting_payment[user_id]
     order_id = order_info["order_id"]
@@ -207,6 +243,7 @@ async def handle_payment_proof(message: types.Message):
 
     await message.answer("Ваш скриншот/сообщение отправлено. Ожидайте ответа от админа.")
     awaiting_payment.pop(user_id, None)
+    save_awaiting_payment()
 
 @dp.callback_query_handler(lambda c: c.data.startswith("approve_"))
 async def approve_order(callback_query: types.CallbackQuery):
