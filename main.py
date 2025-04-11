@@ -111,7 +111,7 @@ async def area_selected(callback_query: types.CallbackQuery):
         "order_id": order_id,
         "city": "Днепр",
         "area": area,
-        "status": "ожидает оплаты"  # Новый статус заказа
+        "status": "ожидает оплаты"
     })
 
     full_order = {
@@ -160,19 +160,16 @@ async def payment_selected(callback_query: types.CallbackQuery):
         await callback_query.message.edit_text("Что-то пошло не так. Попробуй снова /start")
         return
 
-    # Обновляем статус заказа
     all_orders[order_id]["status"] = "ожидает подтверждения оплаты"
     pending_orders[order_id]["status"] = "ожидает подтверждения оплаты"
 
-    # Сообщаем пользователю, что нужно отправить скриншот
     await callback_query.message.edit_text(
         f"Ваш заказ №: {order_id}\n"
         "Для оплаты переведите указанную сумму на карту:\n"
-        "💳 Номер карты: 1234 5678 9012 3456\n"  # Замени на реальный номер карты
+        "💳 Номер карты: 1234 5678 9012 3456\n"
         "После оплаты отправьте скриншот или сообщение с подтверждением ниже."
     )
 
-    # Добавляем пользователя в список ожидающих скриншот
     awaiting_payment[callback_query.from_user.id] = {
         "order_id": order_id,
         "message_id": callback_query.message.message_id
@@ -188,11 +185,9 @@ async def handle_payment_proof(message: types.Message):
     order_info = awaiting_payment[user_id]
     order_id = order_info["order_id"]
 
-    # Обновляем статус заказа
     all_orders[order_id]["status"] = "оплачено"
     pending_orders[order_id]["status"] = "оплачено"
 
-    # Пересылаем скриншот или сообщение админу
     admin_message = (
         f"📸 Пользователь @{message.from_user.username} отправил подтверждение оплаты для заказа #{order_id}\n"
         f"Статус: {all_orders[order_id]['status']}"
@@ -202,16 +197,15 @@ async def handle_payment_proof(message: types.Message):
         InlineKeyboardButton("📩 Ответить", callback_data=f"reply_{user_id}_{order_id}")
     )
 
+    logger.info(f"Sending to admin: {admin_message}, callback_data=reply_{user_id}_{order_id}")
+
     if message.photo:
         photo = message.photo[-1].file_id
         await bot.send_photo(ADMIN_ID, photo, caption=admin_message, reply_markup=admin_markup)
     else:
         await bot.send_message(ADMIN_ID, f"{admin_message}\nСообщение: {message.text}", reply_markup=admin_markup)
 
-    # Уведомляем пользователя
     await message.answer("Ваш скриншот/сообщение отправлено. Ожидайте ответа от админа.")
-
-    # Удаляем пользователя из списка ожидающих скриншот
     awaiting_payment.pop(user_id, None)
 
 @dp.callback_query_handler(lambda c: c.data.startswith("approve_"))
@@ -225,13 +219,11 @@ async def approve_order(callback_query: types.CallbackQuery):
     order["status"] = "подтверждён"
     pending_orders.pop(order_id, None)
 
-    # Уведомляем пользователя
     await bot.send_message(
         order["user_id"],
         f"Ваш заказ #{order_id} подтверждён! Спасибо за покупку."
     )
 
-    # Обновляем сообщение админа
     await callback_query.message.edit_text(
         f"📦 Заказ #{order_id}\n"
         f"Юзер: @{order['username']}\n"
@@ -253,13 +245,11 @@ async def reject_order(callback_query: types.CallbackQuery):
     pending_orders.pop(order_id, None)
     user_orders.pop(order["user_id"], None)
 
-    # Уведомляем пользователя
     await bot.send_message(
         order["user_id"],
         f"Ваш заказ #{order_id} был отклонён. Для уточнения деталей свяжитесь с оператором: @shmalebanutaya"
     )
 
-    # Обновляем сообщение админа
     await callback_query.message.edit_text(
         f"📦 Заказ #{order_id}\n"
         f"Юзер: @{order['username']}\n"
@@ -273,11 +263,19 @@ async def reject_order(callback_query: types.CallbackQuery):
 async def reply_to_user(callback_query: types.CallbackQuery):
     logger.info(f"Received reply callback: {callback_query.data}")
     try:
-        _, user_id, order_id = callback_query.data.split("_")
+        parts = callback_query.data.split("_")
+        if len(parts) != 3:
+            raise ValueError(f"Invalid callback_data format: {callback_query.data}")
+        _, user_id, order_id = parts
         user_id = int(user_id)
         order_id = int(order_id)
+        logger.info(f"Parsed reply: user_id={user_id}, order_id={order_id}")
 
-        # Добавляем админа в список ожидающих ответа
+        if callback_query.from_user.id != ADMIN_ID:
+            logger.warning(f"Non-admin tried to reply: {callback_query.from_user.id}")
+            await callback_query.message.edit_text("Только админ может отвечать.")
+            return
+
         awaiting_admin_response[callback_query.from_user.id] = {
             "user_id": user_id,
             "order_id": order_id
@@ -286,15 +284,15 @@ async def reply_to_user(callback_query: types.CallbackQuery):
         await callback_query.message.edit_text(
             f"Отправьте ответ для пользователя (заказ #{order_id}). Это может быть текст, фото или фото с текстом."
         )
+        await callback_query.answer()  # Подтверждаем нажатие кнопки
     except Exception as e:
         logger.error(f"Error in reply_to_user: {e}")
         await callback_query.message.edit_text("Произошла ошибка. Попробуйте снова.")
+        await callback_query.answer()
 
 @dp.message_handler(content_types=['photo', 'text'])
 async def handle_admin_response(message: types.Message):
-    # Проверяем, является ли отправитель админом
     if message.from_user.id != ADMIN_ID:
-        # Если это не админ, проверяем, ожидается ли скриншот/сообщение от пользователя
         return await handle_payment_proof(message)
 
     if message.from_user.id not in awaiting_admin_response:
@@ -305,18 +303,21 @@ async def handle_admin_response(message: types.Message):
     user_id = response_info["user_id"]
     order_id = response_info["order_id"]
 
-    # Отправляем ответ пользователю
-    if message.photo:
-        photo = message.photo[-1].file_id
-        caption = message.caption or f"Ответ от админа по заказу #{order_id}"
-        await bot.send_photo(user_id, photo, caption=caption)
-    else:
-        await bot.send_message(user_id, f"Ответ от админа по заказу #{order_id}:\n{message.text}")
+    logger.info(f"Admin response for user_id={user_id}, order_id={order_id}")
 
-    # Уведомляем админа
-    await message.answer(f"Ответ отправлен пользователю (заказ #{order_id}).")
+    try:
+        if message.photo:
+            photo = message.photo[-1].file_id
+            caption = message.caption or f"Ответ от админа по заказу #{order_id}"
+            await bot.send_photo(user_id, photo, caption=caption)
+        else:
+            await bot.send_message(user_id, f"Ответ от админа по заказу #{order_id}:\n{message.text}")
 
-    # Удаляем из списка ожидающих
+        await message.answer(f"Ответ отправлен пользователю (заказ #{order_id}).")
+    except Exception as e:
+        logger.error(f"Error sending response to user {user_id}: {e}")
+        await message.answer("Ошибка при отправке ответа пользователю.")
+
     awaiting_admin_response.pop(message.from_user.id, None)
 
 # Запуск бота и HTTP-сервера
@@ -329,7 +330,7 @@ if __name__ == '__main__':
         await runner.setup()
         site = web.TCPSite(runner, '0.0.0.0', 8080)
         await site.start()
-        logging.info("HTTP server started on port 8080")
+        logger.info("HTTP server started on port 8080")
 
     loop = asyncio.get_event_loop()
     loop.create_task(start_http_server())
