@@ -9,6 +9,7 @@ from aiohttp import web
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Чтение переменных окружения
 API_TOKEN = os.getenv("API_TOKEN")
@@ -33,6 +34,12 @@ async def health_check(request):
 
 app = web.Application()
 app.router.add_get('/', health_check)
+
+# Обработчик ошибок
+@dp.errors_handler()
+async def errors_handler(update, exception):
+    logger.error(f"Update {update} caused error {exception}")
+    return True
 
 @dp.message_handler(commands=['start'])
 async def start_handler(message: types.Message):
@@ -192,8 +199,7 @@ async def handle_payment_proof(message: types.Message):
     )
     admin_markup = InlineKeyboardMarkup()
     admin_markup.add(
-        InlineKeyboardButton("📷 Ответить фото", callback_data=f"reply_photo_{user_id}_{order_id}"),
-        InlineKeyboardButton("📝 Ответить текстом", callback_data=f"reply_text_{user_id}_{order_id}")
+        InlineKeyboardButton("📩 Ответить", callback_data=f"reply_{user_id}_{order_id}")
     )
 
     if message.photo:
@@ -263,73 +269,29 @@ async def reject_order(callback_query: types.CallbackQuery):
         f"Статус: {order['status']}"
     )
 
-@dp.callback_query_handler(lambda c: c.data.startswith("reply_photo_"))
-async def reply_with_photo(callback_query: types.CallbackQuery):
-    _, user_id, order_id = callback_query.data.split("_")
-    user_id = int(user_id)
-    order_id = int(order_id)
+@dp.callback_query_handler(lambda c: c.data.startswith("reply_"))
+async def reply_to_user(callback_query: types.CallbackQuery):
+    logger.info(f"Received reply callback: {callback_query.data}")
+    try:
+        _, user_id, order_id = callback_query.data.split("_")
+        user_id = int(user_id)
+        order_id = int(order_id)
 
-    # Добавляем админа в список ожидающих фото
-    awaiting_admin_response[callback_query.from_user.id] = {
-        "user_id": user_id,
-        "order_id": order_id,
-        "response_type": "photo"
-    }
+        # Добавляем админа в список ожидающих ответа
+        awaiting_admin_response[callback_query.from_user.id] = {
+            "user_id": user_id,
+            "order_id": order_id
+        }
 
-    await callback_query.message.edit_text(
-        f"Отправьте фото для пользователя (заказ #{order_id})."
-    )
+        await callback_query.message.edit_text(
+            f"Отправьте ответ для пользователя (заказ #{order_id}). Это может быть текст, фото или фото с текстом."
+        )
+    except Exception as e:
+        logger.error(f"Error in reply_to_user: {e}")
+        await callback_query.message.edit_text("Произошла ошибка. Попробуйте снова.")
 
-@dp.callback_query_handler(lambda c: c.data.startswith("reply_text_"))
-async def reply_with_text(callback_query: types.CallbackQuery):
-    _, user_id, order_id = callback_query.data.split("_")
-    user_id = int(user_id)
-    order_id = int(order_id)
-
-    # Добавляем админа в список ожидающих текст
-    awaiting_admin_response[callback_query.from_user.id] = {
-        "user_id": user_id,
-        "order_id": order_id,
-        "response_type": "text"
-    }
-
-    await callback_query.message.edit_text(
-        f"Отправьте текстовое сообщение для пользователя (заказ #{order_id})."
-    )
-
-@dp.message_handler(content_types=['photo'])
-async def handle_admin_photo(message: types.Message):
-    if message.from_user.id != ADMIN_ID:
-        return  # Игнорируем сообщения не от админа
-
-    if message.from_user.id not in awaiting_admin_response:
-        await message.answer("Пожалуйста, выберите действие через кнопку.")
-        return
-
-    response_info = awaiting_admin_response[message.from_user.id]
-    if response_info["response_type"] != "photo":
-        await message.answer("Ожидается текстовое сообщение. Попробуйте снова.")
-        return
-
-    user_id = response_info["user_id"]
-    order_id = response_info["order_id"]
-    photo = message.photo[-1].file_id
-
-    # Отправляем фото пользователю
-    await bot.send_photo(
-        user_id,
-        photo,
-        caption=f"Ответ от админа по заказу #{order_id}"
-    )
-
-    # Уведомляем админа
-    await message.answer(f"Фото отправлено пользователю (заказ #{order_id}).")
-
-    # Удаляем из списка ожидающих
-    awaiting_admin_response.pop(message.from_user.id, None)
-
-@dp.message_handler(content_types=['text'])
-async def handle_admin_text(message: types.Message):
+@dp.message_handler(content_types=['photo', 'text'])
+async def handle_admin_response(message: types.Message):
     # Проверяем, является ли отправитель админом
     if message.from_user.id != ADMIN_ID:
         # Если это не админ, проверяем, ожидается ли скриншот/сообщение от пользователя
@@ -340,21 +302,19 @@ async def handle_admin_text(message: types.Message):
         return
 
     response_info = awaiting_admin_response[message.from_user.id]
-    if response_info["response_type"] != "text":
-        await message.answer("Ожидается фото. Попробуйте снова.")
-        return
-
     user_id = response_info["user_id"]
     order_id = response_info["order_id"]
 
-    # Отправляем текст пользователю
-    await bot.send_message(
-        user_id,
-        f"Ответ от админа по заказу #{order_id}:\n{message.text}"
-    )
+    # Отправляем ответ пользователю
+    if message.photo:
+        photo = message.photo[-1].file_id
+        caption = message.caption or f"Ответ от админа по заказу #{order_id}"
+        await bot.send_photo(user_id, photo, caption=caption)
+    else:
+        await bot.send_message(user_id, f"Ответ от админа по заказу #{order_id}:\n{message.text}")
 
     # Уведомляем админа
-    await message.answer(f"Сообщение отправлено пользователю (заказ #{order_id}).")
+    await message.answer(f"Ответ отправлен пользователю (заказ #{order_id}).")
 
     # Удаляем из списка ожидающих
     awaiting_admin_response.pop(message.from_user.id, None)
