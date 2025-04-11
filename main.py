@@ -141,6 +141,22 @@ async def area_selected(callback_query: types.CallbackQuery):
         reply_markup=admin_markup
     )
 
+@dp.callback_query_handler(lambda c: c.data == "pay_card")
+async def payment_selected(callback_query: types.CallbackQuery):
+    order_id = user_orders.get(callback_query.from_user.id, {}).get("order_id")
+    if not order_id:
+        await callback_query.message.edit_text("Что-то пошло не так. Попробуй снова /start")
+        return
+
+    # Здесь можно указать инструкции по оплате
+    payment_instructions = (
+        f"Ваш заказ №: {order_id}\n"
+        "Для оплаты переведите указанную сумму на карту:\n"
+        "💳 Номер карты: 1234 5678 9012 3456\n"  # Замени на реальный номер карты
+        "После оплаты отправьте скриншот оператору: @shmalebanutaya"
+    )
+    await callback_query.message.edit_text(payment_instructions)
+
 # Запуск бота и HTTP-сервера
 if __name__ == '__main__':
     from aiogram.utils.executor import start_polling
