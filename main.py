@@ -169,7 +169,22 @@ async def city_selected(callback_query: types.CallbackQuery):
         InlineKeyboardButton("Товар 2 - 2гр - 570 грн", callback_data="product_2"),
         InlineKeyboardButton("Товар 3 - 3гр - 820 грн", callback_data="product_3")
     )
-    await callback_query.message.edit_text("Вы выбрали город Днепр.\nЧто тебе присмотрелось?", reply_markup=markup)
+    
+    # Удаляем старое сообщение с фото
+    await bot.delete_message(
+        chat_id=callback_query.message.chat.id,
+        message_id=callback_query.message.message_id
+    )
+    
+    # Отправляем новое сообщение с текстом и кнопками
+    await bot.send_message(
+        chat_id=callback_query.message.chat.id,
+        text="Вы выбрали город Днепр.\nЧто тебе присмотрелось?",
+        reply_markup=markup
+    )
+    
+    # Подтверждаем обработку callback
+    await callback_query.answer()
 
 @dp.callback_query_handler(lambda c: c.data.startswith("product_"))
 async def product_selected(callback_query: types.CallbackQuery):
