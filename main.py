@@ -273,7 +273,7 @@ async def reply_to_user(callback_query: types.CallbackQuery):
 
         if callback_query.from_user.id != ADMIN_ID:
             logger.warning(f"Non-admin tried to reply: {callback_query.from_user.id}")
-            await callback_query.message.edit_text("Только админ может отвечать.")
+            await callback_query.answer("Только админ может отвечать.")
             return
 
         awaiting_admin_response[callback_query.from_user.id] = {
@@ -281,13 +281,18 @@ async def reply_to_user(callback_query: types.CallbackQuery):
             "order_id": order_id
         }
 
-        await callback_query.message.edit_text(
+        # Отправляем новое сообщение вместо редактирования
+        await bot.send_message(
+            callback_query.from_user.id,
             f"Отправьте ответ для пользователя (заказ #{order_id}). Это может быть текст, фото или фото с текстом."
         )
         await callback_query.answer()  # Подтверждаем нажатие кнопки
     except Exception as e:
         logger.error(f"Error in reply_to_user: {e}")
-        await callback_query.message.edit_text("Произошла ошибка. Попробуйте снова.")
+        await bot.send_message(
+            callback_query.from_user.id,
+            "Произошла ошибка. Попробуйте снова."
+        )
         await callback_query.answer()
 
 @dp.message_handler(content_types=['photo', 'text'])
