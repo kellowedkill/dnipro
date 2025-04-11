@@ -297,8 +297,11 @@ async def reply_with_text(callback_query: types.CallbackQuery):
         f"Отправьте текстовое сообщение для пользователя (заказ #{order_id})."
     )
 
-@dp.message_handler(content_types=['photo'], lambda message: message.from_user.id == ADMIN_ID)
+@dp.message_handler(content_types=['photo'])
 async def handle_admin_photo(message: types.Message):
+    if message.from_user.id != ADMIN_ID:
+        return  # Игнорируем сообщения не от админа
+
     if message.from_user.id not in awaiting_admin_response:
         await message.answer("Пожалуйста, выберите действие через кнопку.")
         return
@@ -325,8 +328,13 @@ async def handle_admin_photo(message: types.Message):
     # Удаляем из списка ожидающих
     awaiting_admin_response.pop(message.from_user.id, None)
 
-@dp.message_handler(content_types=['text'], lambda message: message.from_user.id == ADMIN_ID)
+@dp.message_handler(content_types=['text'])
 async def handle_admin_text(message: types.Message):
+    # Проверяем, является ли отправитель админом
+    if message.from_user.id != ADMIN_ID:
+        # Если это не админ, проверяем, ожидается ли скриншот/сообщение от пользователя
+        return await handle_payment_proof(message)
+
     if message.from_user.id not in awaiting_admin_response:
         await message.answer("Пожалуйста, выберите действие через кнопку.")
         return
