@@ -214,11 +214,10 @@ async def product_selected(callback_query: types.CallbackQuery):
         message_id=callback_query.message.message_id
     )
 
-    # Отправляем новое сообщение с фото, описанием и кнопками
-    await bot.send_photo(
+    # Отправляем новое текстовое сообщение
+    await bot.send_message(
         chat_id=callback_query.message.chat.id,
-        photo="https://i.imgur.com/GuEGQGw.png",
-        caption=(
+        text=(
             f"Избран продукт: {product_name}\n"
             f"Коротко о товаре: Hindu Kush — легенда прямо с гор!\n"
             f"Чистая индика, которая расслабит тело и вынесет мозг в дзен. Густой пряно-земляной аромат, мягкий вкус и мощный эффект 'всё по кайфу'. Идеален для вечеров, чилла и сладкого сна.\n\n"
