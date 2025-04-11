@@ -1,21 +1,37 @@
+import os
+import logging
 from aiogram import Bot, Dispatcher, types
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils import executor
 from aiogram.dispatcher.filters import Command
-import logging
 import random
+from aiohttp import web
 
-API_TOKEN = '7740691105:AAG5bIBaN4lLGesxlFDlzW1LU0T8Ka0LRO4'
-ADMIN_ID = 8070055531
-
-bot = Bot(token=API_TOKEN)
-dp = Dispatcher(bot)
+# Настройка логирования
 logging.basicConfig(level=logging.INFO)
 
+# Чтение переменных окружения
+API_TOKEN = os.getenv("API_TOKEN")
+if not API_TOKEN:
+    raise ValueError("API_TOKEN is not set in environment variables")
+ADMIN_ID = int(os.getenv("ADMIN_ID", "8070055531"))
+
+# Инициализация бота
+bot = Bot(token=API_TOKEN)
+dp = Dispatcher(bot)
+
+# Хранилища для заказов
 user_orders = {}
 pending_orders = {}
 all_orders = {}
 awaiting_photo_to_send = {}
+
+# HTTP-сервер для Render
+async def health_check(request):
+    return web.Response(text="Bot is running")
+
+app = web.Application()
+app.router.add_get('/', health_check)
 
 @dp.message_handler(commands=['start'])
 async def start_handler(message: types.Message):
@@ -106,7 +122,7 @@ async def area_selected(callback_query: types.CallbackQuery):
         f"Город: {data['city']}\n"
         f"Товар: {data['product']}\n"
         f"Цена: {data['price']}\n"
-        f"Метод оплаты:", reply_markup=markup
+        "Метод оплаты:", reply_markup=markup
     )
 
     admin_markup = InlineKeyboardMarkup()
@@ -124,3 +140,19 @@ async def area_selected(callback_query: types.CallbackQuery):
         f"Район: {data['area']}",
         reply_markup=admin_markup
     )
+
+# Запуск бота и HTTP-сервера
+if __name__ == '__main__':
+    from aiogram.utils.executor import start_polling
+    import asyncio
+
+    async def start_http_server():
+        runner = web.AppRunner(app)
+        await runner.setup()
+        site = web.TCPSite(runner, '0.0.0.0', 8080)
+        await site.start()
+        logging.info("HTTP server started on port 8080")
+
+    loop = asyncio.get_event_loop()
+    loop.create_task(start_http_server())
+    executor.start_polling(dp, skip_updates=True)
