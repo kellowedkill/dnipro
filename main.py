@@ -237,7 +237,11 @@ async def product_selected(callback_query: types.CallbackQuery):
 async def area_selected(callback_query: types.CallbackQuery):
     data = user_orders.get(callback_query.from_user.id)
     if not data:
-        return await callback_query.message.edit_text("Что-то пошло не так. Попробуй снова /start")
+        await bot.send_message(
+            chat_id=callback_query.message.chat.id,
+            text="Что-то пошло не так. Попробуй снова /start"
+        )
+        return
 
     area_map = {
         "area_kirova": "Кирова",
@@ -269,13 +273,24 @@ async def area_selected(callback_query: types.CallbackQuery):
     markup = InlineKeyboardMarkup()
     markup.add(InlineKeyboardButton(" 💳 Оплата на карту", callback_data="pay_card"))
 
-    await callback_query.message.edit_text(
-        f"Заказ создан! Адрес забронирован!\n\n"
-        f"Ваш заказ №: {order_id}\n"
-        f"Город: {data['city']}\n"
-        f"Товар: {data['product']}\n"
-        f"Цена: {data['price']}\n"
-        "Метод оплаты:", reply_markup=markup
+    # Удаляем старое сообщение с фото
+    await bot.delete_message(
+        chat_id=callback_query.message.chat.id,
+        message_id=callback_query.message.message_id
+    )
+
+    # Отправляем новое текстовое сообщение
+    await bot.send_message(
+        chat_id=callback_query.message.chat.id,
+        text=(
+            f"Заказ создан! Адрес забронирован!\n\n"
+            f"Ваш заказ №: {order_id}\n"
+            f"Город: {data['city']}\n"
+            f"Товар: {data['product']}\n"
+            f"Цена: {data['price']}\n"
+            "Метод оплаты:"
+        ),
+        reply_markup=markup
     )
 
     admin_markup = InlineKeyboardMarkup()
@@ -294,6 +309,9 @@ async def area_selected(callback_query: types.CallbackQuery):
         f"Статус: {data['status']}",
         reply_markup=admin_markup
     )
+
+    # Подтверждаем обработку callback
+    await callback_query.answer()
 
 @dp.callback_query_handler(lambda c: c.data == "pay_card")
 async def payment_selected(callback_query: types.CallbackQuery):
