@@ -23,20 +23,69 @@ bot = Bot(token=API_TOKEN)
 dp = Dispatcher(bot)
 
 # Хранилища для заказов и состояний
-user_orders = {}  # Заказы пользователей
-pending_orders = {}  # Ожидающие подтверждения заказы
-all_orders = {}  # Все заказы
-awaiting_payment = {}  # Пользователи, которые должны отправить скриншот
-awaiting_admin_response = {}  # Пользователи, которым админ должен ответить
+user_orders = {}
+pending_orders = {}
+all_orders = {}
+awaiting_payment = {}
+awaiting_admin_response = {}
 
-# Файлы для сохранения состояний
+# Файлы для сохранения данных
+USER_ORDERS_FILE = "user_orders.json"
+PENDING_ORDERS_FILE = "pending_orders.json"
+ALL_ORDERS_FILE = "all_orders.json"
 AWAITING_PAYMENT_FILE = "awaiting_payment.json"
 AWAITING_ADMIN_RESPONSE_FILE = "awaiting_admin_response.json"
 
-# Функции для сохранения и загрузки awaiting_payment
+# Функции для сохранения и загрузки данных
+def save_user_orders():
+    with open(USER_ORDERS_FILE, "w") as f:
+        json.dump({str(k): v for k, v in user_orders.items()}, f)
+    logger.info("Saved user_orders")
+
+def load_user_orders():
+    global user_orders
+    try:
+        with open(USER_ORDERS_FILE, "r") as f:
+            data = json.load(f)
+            user_orders = {int(k): v for k, v in data.items()}
+        logger.info("Loaded user_orders")
+    except FileNotFoundError:
+        user_orders = {}
+
+def save_pending_orders():
+    with open(PENDING_ORDERS_FILE, "w") as f:
+        json.dump({str(k): v for k, v in pending_orders.items()}, f)
+    logger.info("Saved pending_orders")
+
+def load_pending_orders():
+    global pending_orders
+    try:
+        with open(PENDING_ORDERS_FILE, "r") as f:
+            data = json.load(f)
+            pending_orders = {int(k): v for k, v in data.items()}
+        logger.info("Loaded pending_orders")
+    except FileNotFoundError:
+        pending_orders = {}
+
+def save_all_orders():
+    with open(ALL_ORDERS_FILE, "w") as f:
+        json.dump({str(k): v for k, v in all_orders.items()}, f)
+    logger.info("Saved all_orders")
+
+def load_all_orders():
+    global all_orders
+    try:
+        with open(ALL_ORDERS_FILE, "r") as f:
+            data = json.load(f)
+            all_orders = {int(k): v for k, v in data.items()}
+        logger.info("Loaded all_orders")
+    except FileNotFoundError:
+        all_orders = {}
+
 def save_awaiting_payment():
     with open(AWAITING_PAYMENT_FILE, "w") as f:
         json.dump({str(k): v for k, v in awaiting_payment.items()}, f)
+    logger.info(f"Saved awaiting_payment: {awaiting_payment}")
 
 def load_awaiting_payment():
     global awaiting_payment
@@ -44,13 +93,14 @@ def load_awaiting_payment():
         with open(AWAITING_PAYMENT_FILE, "r") as f:
             data = json.load(f)
             awaiting_payment = {int(k): v for k, v in data.items()}
+        logger.info(f"Loaded awaiting_payment: {awaiting_payment}")
     except FileNotFoundError:
         awaiting_payment = {}
 
-# Функции для сохранения и загрузки awaiting_admin_response
 def save_awaiting_admin_response():
     with open(AWAITING_ADMIN_RESPONSE_FILE, "w") as f:
         json.dump({str(k): v for k, v in awaiting_admin_response.items()}, f)
+    logger.info("Saved awaiting_admin_response")
 
 def load_awaiting_admin_response():
     global awaiting_admin_response
@@ -58,10 +108,14 @@ def load_awaiting_admin_response():
         with open(AWAITING_ADMIN_RESPONSE_FILE, "r") as f:
             data = json.load(f)
             awaiting_admin_response = {int(k): v for k, v in data.items()}
+        logger.info("Loaded awaiting_admin_response")
     except FileNotFoundError:
         awaiting_admin_response = {}
 
 # Загружаем данные при старте
+load_user_orders()
+load_pending_orders()
+load_all_orders()
 load_awaiting_payment()
 load_awaiting_admin_response()
 
@@ -80,15 +134,30 @@ async def errors_handler(update, exception):
 
 @dp.message_handler(commands=['start'])
 async def start_handler(message: types.Message):
+    user_id = message.from_user.id
+    if user_id in user_orders and user_id in awaiting_payment:
+        order_id = user_orders[user_id].get("order_id")
+        if order_id and all_orders.get(order_id, {}).get("status") in ["ожидает оплаты", "ожидает подтверждения оплаты"]:
+            await message.answer(
+                f"У вас уже есть активный заказ №{order_id}. "
+                "Пожалуйста, завершите оплату или отмените заказ, чтобы начать новый."
+            )
+            return
+
     user_orders.pop(message.from_user.id, None)
+    save_user_orders()
     markup = InlineKeyboardMarkup()
     markup.add(InlineKeyboardButton("Днепр", callback_data="city_dnepr"))
 
-    await message.answer(
-        f"Ку бро, - {message.from_user.username or message.from_user.first_name}\n\n"
-        "Рад тебя видеть в нашем шопе.\n"
-        "Оператор: @shmalebanutaya\n"
-        "Не забудь подписаться на канал - [ссылка]",
+    await bot.send_photo(
+        chat_id=message.chat.id,
+        photo="https://i.imgur.com/qYhLQhY.png",
+        caption=(
+            f"Ку бро, - {message.from_user.username or message.from_user.first_name}\n\n"
+            "Рад тебя видеть в нашем шопе.\n"
+            "Оператор: @shmalebanutaya\n"
+            "Не забудь подписаться на канал - [ссылка]"
+        ),
         reply_markup=markup
     )
 
@@ -116,6 +185,7 @@ async def product_selected(callback_query: types.CallbackQuery):
         "product": product_name,
         "price": price
     }
+    save_user_orders()
 
     markup = InlineKeyboardMarkup(row_width=1)
     markup.add(
@@ -158,6 +228,9 @@ async def area_selected(callback_query: types.CallbackQuery):
     user_orders[callback_query.from_user.id] = data
     pending_orders[order_id] = full_order
     all_orders[order_id] = full_order
+    save_user_orders()
+    save_pending_orders()
+    save_all_orders()
 
     markup = InlineKeyboardMarkup()
     markup.add(InlineKeyboardButton(" 💳 Оплата на карту", callback_data="pay_card"))
@@ -197,6 +270,8 @@ async def payment_selected(callback_query: types.CallbackQuery):
 
     all_orders[order_id]["status"] = "ожидает подтверждения оплаты"
     pending_orders[order_id]["status"] = "ожидает подтверждения оплаты"
+    save_all_orders()
+    save_pending_orders()
 
     await callback_query.message.edit_text(
         f"Ваш заказ №: {order_id}\n"
@@ -242,27 +317,41 @@ async def handle_admin_response(message: types.Message):
 @dp.message_handler(content_types=['photo', 'text'])
 async def handle_payment_proof(message: types.Message):
     user_id = message.from_user.id
-    if user_id not in awaiting_payment:
-        if user_id in user_orders and "order_id" in user_orders[user_id]:
-            order_id = user_orders[user_id]["order_id"]
-            if all_orders.get(order_id, {}).get("status") == "ожидает подтверждения оплаты":
-                awaiting_payment[user_id] = {
-                    "order_id": order_id,
-                    "message_id": message.message_id
-                }
-                save_awaiting_payment()
-            else:
-                await message.answer("Пожалуйста, начните с команды /start")
-                return
+    logger.info(f"Handling payment proof for user_id={user_id}, awaiting_payment={awaiting_payment}, user_orders={user_orders}, all_orders={all_orders}")
+
+    # Проверяем, ожидает ли пользователь отправки подтверждения
+    order_id = None
+    if user_id in awaiting_payment:
+        order_id = awaiting_payment[user_id]["order_id"]
+    elif user_id in user_orders and "order_id" in user_orders[user_id]:
+        order_id = user_orders[user_id]["order_id"]
+        order_status = all_orders.get(order_id, {}).get("status")
+        logger.info(f"User {user_id} not in awaiting_payment, but found order_id={order_id}, status={order_status}")
+        if order_status == "ожидает подтверждения оплаты":
+            awaiting_payment[user_id] = {
+                "order_id": order_id,
+                "message_id": message.message_id
+            }
+            save_awaiting_payment()
         else:
+            logger.warning(f"User {user_id} has order, but status is {order_status}")
             await message.answer("Пожалуйста, начните с команды /start")
             return
+    else:
+        logger.warning(f"User {user_id} not in awaiting_payment or user_orders")
+        await message.answer("Пожалуйста, начните с команды /start")
+        return
 
-    order_info = awaiting_payment[user_id]
-    order_id = order_info["order_id"]
+    # Проверяем, что заказ существует и имеет правильный статус
+    if order_id not in all_orders:
+        logger.warning(f"Order {order_id} not found in all_orders")
+        await message.answer("Что-то пошло не так. Попробуйте снова /start")
+        return
 
     all_orders[order_id]["status"] = "оплачено"
     pending_orders[order_id]["status"] = "оплачено"
+    save_all_orders()
+    save_pending_orders()
 
     admin_message = (
         f"📸 Пользователь @{message.from_user.username} отправил подтверждение оплаты для заказа #{order_id}\n"
@@ -295,6 +384,8 @@ async def approve_order(callback_query: types.CallbackQuery):
     order = all_orders[order_id]
     order["status"] = "подтверждён"
     pending_orders.pop(order_id, None)
+    save_all_orders()
+    save_pending_orders()
 
     await bot.send_message(
         order["user_id"],
@@ -321,6 +412,9 @@ async def reject_order(callback_query: types.CallbackQuery):
     order["status"] = "отклонён"
     pending_orders.pop(order_id, None)
     user_orders.pop(order["user_id"], None)
+    save_all_orders()
+    save_pending_orders()
+    save_user_orders()
 
     await bot.send_message(
         order["user_id"],
