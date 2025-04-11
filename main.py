@@ -98,7 +98,7 @@ async def area_selected(callback_query: types.CallbackQuery):
     all_orders[order_id] = full_order
 
     markup = InlineKeyboardMarkup()
-    markup.add(InlineKeyboardButton("\ud83d\udcb3 Оплата на карту", callback_data="pay_card"))
+    markup.add(InlineKeyboardButton(" Оплата на карту", callback_data="pay_card"))
 
     await callback_query.message.edit_text(
         f"Заказ создан! Адрес забронирован!\n\n"
